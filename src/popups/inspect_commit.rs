@@ -263,6 +263,11 @@ impl InspectCommitPopup {
 		Ok(())
 	}
 
+	/// Select next or previous file while in diff view.
+	pub fn select_file(&mut self, down: bool) {
+		self.details.select_file(down);
+	}
+
 	/// called when any tree component changed selection
 	pub fn update_diff(&mut self) -> Result<()> {
 		if self.is_visible() {
@@ -294,6 +299,11 @@ impl InspectCommitPopup {
 
 			self.diff.clear(false);
 		}
+
+		self.diff.set_file_nav(
+			self.details.has_file_in_direction(true),
+			self.details.has_file_in_direction(false),
+		);
 
 		Ok(())
 	}

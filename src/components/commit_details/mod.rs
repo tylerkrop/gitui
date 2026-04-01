@@ -120,6 +120,16 @@ impl CommitDetailsComponent {
 		&self.file_tree
 	}
 
+	/// Select next or previous file in the file tree.
+	pub fn select_file(&mut self, down: bool) {
+		self.file_tree.select_next_file(down);
+	}
+
+	/// Check if there is a next/prev file beyond the current selection.
+	pub fn has_file_in_direction(&self, down: bool) -> bool {
+		self.file_tree.has_file_in_direction(down)
+	}
+
 	fn details_focused(&self) -> bool {
 		self.single_details.focused()
 			|| self.compare_details.focused()

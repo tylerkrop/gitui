@@ -42,6 +42,7 @@ pub struct KeysList {
 	pub tab_files: GituiKeyEvent,
 	pub tab_stashing: GituiKeyEvent,
 	pub tab_stashes: GituiKeyEvent,
+	pub tab_review: GituiKeyEvent,
 	pub tab_toggle: GituiKeyEvent,
 	pub tab_toggle_reverse: GituiKeyEvent,
 	pub toggle_workarea: GituiKeyEvent,
@@ -115,6 +116,12 @@ pub struct KeysList {
 	pub undo_commit: GituiKeyEvent,
 	pub diff_hunk_next: GituiKeyEvent,
 	pub diff_hunk_prev: GituiKeyEvent,
+	pub diff_file_next: GituiKeyEvent,
+	pub diff_file_prev: GituiKeyEvent,
+	pub review_comment: GituiKeyEvent,
+	pub review_delete: GituiKeyEvent,
+	pub review_edit: GituiKeyEvent,
+	pub review_clear: GituiKeyEvent,
 	pub stage_unstage_item: GituiKeyEvent,
 	pub tag_annotate: GituiKeyEvent,
 	pub view_submodules: GituiKeyEvent,
@@ -132,6 +139,7 @@ pub struct KeysList {
 }
 
 #[rustfmt::skip]
+#[allow(clippy::too_many_lines)]
 impl Default for KeysList {
 	fn default() -> Self {
 		Self {
@@ -140,6 +148,7 @@ impl Default for KeysList {
 			tab_files: GituiKeyEvent::new(KeyCode::Char('3'),  KeyModifiers::empty()),
 			tab_stashing: GituiKeyEvent::new(KeyCode::Char('4'),  KeyModifiers::empty()),
 			tab_stashes: GituiKeyEvent::new(KeyCode::Char('5'),  KeyModifiers::empty()),
+			tab_review: GituiKeyEvent::new(KeyCode::Char('6'),  KeyModifiers::empty()),
 			tab_toggle: GituiKeyEvent::new(KeyCode::Tab,  KeyModifiers::empty()),
 			tab_toggle_reverse: GituiKeyEvent::new(KeyCode::BackTab,  KeyModifiers::SHIFT),
 			toggle_workarea: GituiKeyEvent::new(KeyCode::Char('w'),  KeyModifiers::empty()),
@@ -213,6 +222,12 @@ impl Default for KeysList {
 			branch_find: GituiKeyEvent::new(KeyCode::Char('f'),  KeyModifiers::empty()),
 			diff_hunk_next: GituiKeyEvent::new(KeyCode::Char('n'),  KeyModifiers::empty()),
 			diff_hunk_prev: GituiKeyEvent::new(KeyCode::Char('p'),  KeyModifiers::empty()),
+			diff_file_next: GituiKeyEvent::new(KeyCode::Char('N'),  KeyModifiers::SHIFT),
+			diff_file_prev: GituiKeyEvent::new(KeyCode::Char('P'),  KeyModifiers::SHIFT),
+			review_comment: GituiKeyEvent::new(KeyCode::Char('r'),  KeyModifiers::empty()),
+			review_delete: GituiKeyEvent::new(KeyCode::Char('d'),  KeyModifiers::empty()),
+			review_edit: GituiKeyEvent::new(KeyCode::Char('e'),  KeyModifiers::empty()),
+			review_clear: GituiKeyEvent::new(KeyCode::Char('D'),  KeyModifiers::SHIFT),
 			stage_unstage_item: GituiKeyEvent::new(KeyCode::Enter,  KeyModifiers::empty()),
 			tag_annotate: GituiKeyEvent::new(KeyCode::Char('a'),  KeyModifiers::CONTROL),
 			view_submodules: GituiKeyEvent::new(KeyCode::Char('S'),  KeyModifiers::SHIFT),

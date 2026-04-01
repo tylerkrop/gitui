@@ -91,6 +91,12 @@ pub fn tab_stashes(key_config: &SharedKeyConfig) -> String {
 		key_config.get_hint(key_config.keys.tab_stashes)
 	)
 }
+pub fn tab_review(key_config: &SharedKeyConfig) -> String {
+	format!(
+		"Review [{}]",
+		key_config.get_hint(key_config.keys.tab_review)
+	)
+}
 pub fn tab_divider(_key_config: &SharedKeyConfig) -> String {
 	" | ".to_string()
 }
@@ -570,12 +576,13 @@ pub mod commands {
 	) -> CommandText {
 		CommandText::new(
 			format!(
-				"Tab [{}{}{}{}{}]",
+				"Tab [{}{}{}{}{}{}]",
 				key_config.get_hint(key_config.keys.tab_status),
 				key_config.get_hint(key_config.keys.tab_log),
 				key_config.get_hint(key_config.keys.tab_files),
 				key_config.get_hint(key_config.keys.tab_stashing),
 				key_config.get_hint(key_config.keys.tab_stashes),
+				key_config.get_hint(key_config.keys.tab_review),
 			),
 			"switch top level tabs directly",
 			CMD_GROUP_GENERAL,
@@ -742,6 +749,94 @@ pub mod commands {
 			),
 			"move cursor to prev hunk",
 			CMD_GROUP_DIFF,
+		)
+	}
+	pub fn diff_file_next(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Next file [{}]",
+				key_config.get_hint(key_config.keys.diff_file_next),
+			),
+			"move to next file in list",
+			CMD_GROUP_DIFF,
+		)
+	}
+	pub fn diff_file_prev(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Prev file [{}]",
+				key_config.get_hint(key_config.keys.diff_file_prev),
+			),
+			"move to prev file in list",
+			CMD_GROUP_DIFF,
+		)
+	}
+	pub fn review_comment(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Review comment [{}]",
+				key_config
+					.get_hint(key_config.keys.review_comment),
+			),
+			"add review comment",
+			CMD_GROUP_DIFF,
+		)
+	}
+	pub fn review_delete(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Delete [{}]",
+				key_config
+					.get_hint(key_config.keys.review_delete),
+			),
+			"delete review comment",
+			CMD_GROUP_GENERAL,
+		)
+	}
+	pub fn review_edit(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Edit [{}]",
+				key_config
+					.get_hint(key_config.keys.review_edit),
+			),
+			"edit review comment",
+			CMD_GROUP_GENERAL,
+		)
+	}
+	pub fn review_clear(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Clear all [{}]",
+				key_config
+					.get_hint(key_config.keys.review_clear),
+			),
+			"clear all review comments",
+			CMD_GROUP_GENERAL,
+		)
+	}
+	pub fn review_copy_all(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Copy all [{}]",
+				key_config.get_hint(key_config.keys.copy),
+			),
+			"copy all review comments to clipboard",
+			CMD_GROUP_GENERAL,
 		)
 	}
 	pub fn diff_home_end(

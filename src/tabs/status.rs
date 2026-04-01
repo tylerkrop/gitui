@@ -482,6 +482,15 @@ impl Status {
 		Ok(())
 	}
 
+	/// Select next or previous file while in diff view.
+	pub fn select_file(&mut self, down: bool) {
+		let list = match self.diff_target {
+			DiffTarget::Stage => &mut self.index,
+			DiffTarget::WorkingDir => &mut self.index_wd,
+		};
+		list.select_file(down);
+	}
+
 	///
 	pub fn update_diff(&mut self) -> Result<()> {
 		if let Some((path, is_stage)) = self.selected_path() {
@@ -521,7 +530,20 @@ impl Status {
 			self.diff.clear(false);
 		}
 
+		self.update_file_nav();
+
 		Ok(())
+	}
+
+	fn update_file_nav(&mut self) {
+		let list = match self.diff_target {
+			DiffTarget::Stage => &self.index,
+			DiffTarget::WorkingDir => &self.index_wd,
+		};
+		self.diff.set_file_nav(
+			list.has_file_in_direction(true),
+			list.has_file_in_direction(false),
+		);
 	}
 
 	fn request_diff(

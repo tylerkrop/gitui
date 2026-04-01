@@ -128,7 +128,27 @@ impl StatusTreeComponent {
 		})
 	}
 
-	fn move_selection(&mut self, dir: MoveSelection) -> bool {
+	/// Check if there is a file entry in the given direction.
+	pub fn has_file_in_direction(&self, down: bool) -> bool {
+		let Some(sel) = self.tree.selection else {
+			return false;
+		};
+		let avail = &self.tree.available_selections;
+		let Some(pos) = avail.iter().position(|&i| i == sel) else {
+			return false;
+		};
+		let items = self.tree.tree.items();
+		let range = if down {
+			&avail[pos + 1..]
+		} else {
+			&avail[..pos]
+		};
+		range.iter().any(|&idx| {
+			matches!(items[idx].kind, FileTreeItemKind::File(_))
+		})
+	}
+
+	pub fn move_selection(&mut self, dir: MoveSelection) -> bool {
 		let changed = self.tree.move_selection(dir);
 
 		if changed {
@@ -136,6 +156,34 @@ impl StatusTreeComponent {
 		}
 
 		changed
+	}
+
+	/// Move selection, skipping directory entries until a file is
+	/// reached. Used for next/prev file navigation from the diff
+	/// view.
+	pub fn select_next_file(&mut self, down: bool) -> bool {
+		let dir = if down {
+			MoveSelection::Down
+		} else {
+			MoveSelection::Up
+		};
+
+		let mut moved = false;
+		loop {
+			if !self.tree.move_selection(dir) {
+				break;
+			}
+			moved = true;
+			if self.is_file_selected() {
+				break;
+			}
+		}
+
+		if moved {
+			self.queue.push(InternalEvent::Update(NeedsUpdate::DIFF));
+		}
+
+		moved
 	}
 
 	const fn item_status_char(item_type: StatusItemType) -> char {

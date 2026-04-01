@@ -12,7 +12,9 @@ pub use scrolllist::{draw_list, draw_list_block};
 pub use stateful_paragraph::{
 	ParagraphState, ScrollPos, StatefulParagraph,
 };
-pub use syntax_text::{AsyncSyntaxJob, SyntaxText};
+pub use syntax_text::{
+	highlight_hunk_lines, AsyncSyntaxJob, HighlightLine, SyntaxText,
+};
 
 use crate::keys::{key_match, SharedKeyConfig};
 

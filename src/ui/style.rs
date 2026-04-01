@@ -21,6 +21,8 @@ pub struct Theme {
 	disabled_fg: Color,
 	diff_line_add: Color,
 	diff_line_delete: Color,
+	diff_line_add_bg: Color,
+	diff_line_delete_bg: Color,
 	diff_file_added: Color,
 	diff_file_removed: Color,
 	diff_file_moved: Color,
@@ -206,6 +208,50 @@ impl Theme {
 		Style::default().fg(self.danger_fg)
 	}
 
+	pub fn diff_line_gutter(
+		&self,
+		typ: DiffLineType,
+		selected_hunk: bool,
+	) -> Style {
+		let fg = match typ {
+			DiffLineType::Add => self.diff_line_add,
+			DiffLineType::Delete => self.diff_line_delete,
+			_ => self.disabled_fg,
+		};
+		if selected_hunk {
+			Style::default().fg(fg).bg(self.selection_bg)
+		} else {
+			Style::default().fg(fg)
+		}
+	}
+
+	pub const fn diff_line_syntax(
+		&self,
+		syntax_style: Style,
+		line_type: DiffLineType,
+		selected: bool,
+	) -> Style {
+		if selected {
+			if self.use_selection_fg {
+				syntax_style
+					.bg(self.selection_bg)
+					.fg(self.selection_fg)
+			} else {
+				syntax_style.bg(self.selection_bg)
+			}
+		} else {
+			match line_type {
+				DiffLineType::Add => {
+					syntax_style.bg(self.diff_line_add_bg)
+				}
+				DiffLineType::Delete => {
+					syntax_style.bg(self.diff_line_delete_bg)
+				}
+				_ => syntax_style,
+			}
+		}
+	}
+
 	pub fn line_break(&self) -> String {
 		self.line_break.clone()
 	}
@@ -339,6 +385,8 @@ impl Default for Theme {
 			disabled_fg: Color::DarkGray,
 			diff_line_add: Color::Green,
 			diff_line_delete: Color::Red,
+			diff_line_add_bg: Color::Rgb(22, 36, 22),
+			diff_line_delete_bg: Color::Rgb(43, 20, 20),
 			diff_file_added: Color::LightGreen,
 			diff_file_removed: Color::LightRed,
 			diff_file_moved: Color::LightMagenta,

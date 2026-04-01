@@ -60,6 +60,16 @@ impl ChangesComponent {
 		self.files.selection()
 	}
 
+	/// Select the next or previous file in the list, skipping directories.
+	pub fn select_file(&mut self, down: bool) -> bool {
+		self.files.select_next_file(down)
+	}
+
+	/// Check if there is a next/prev file beyond the current selection.
+	pub fn has_file_in_direction(&self, down: bool) -> bool {
+		self.files.has_file_in_direction(down)
+	}
+
 	///
 	pub fn focus_select(&mut self, focus: bool) {
 		self.files.focus(focus);
@@ -235,6 +245,12 @@ impl Component for ChangesComponent {
 			));
 		}
 
+		out.push(CommandInfo::new(
+			strings::commands::review_comment(&self.key_config),
+			!self.is_empty(),
+			self.focused(),
+		));
+
 		CommandBlocking::PassingOn
 	}
 
@@ -289,6 +305,21 @@ impl Component for ChangesComponent {
 					&& !self.is_empty()
 				{
 					Ok(self.add_to_ignore().into())
+				} else if key_match(
+					e,
+					self.key_config.keys.review_comment,
+				) {
+					if let Some(item) = self.files.selection() {
+						self.queue.push(
+							InternalEvent::OpenReviewComment {
+								path: item
+									.info
+									.full_path,
+								diff_context: None,
+							},
+						);
+					}
+					Ok(EventState::Consumed)
 				} else {
 					Ok(EventState::NotConsumed)
 				};

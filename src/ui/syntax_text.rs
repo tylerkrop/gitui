@@ -67,6 +67,79 @@ impl AsyncProgressBuffer {
 	}
 }
 
+fn load_syntax_theme(
+	syntax_theme: &str,
+) -> Result<&'static Theme, asyncgit::Error> {
+	THEME.get_or_try_init(|| -> Result<Theme, asyncgit::Error> {
+		let theme_path = crate::args::get_app_config_path()
+			.map_err(|e| asyncgit::Error::Generic(e.to_string()))?
+			.join(format!("{syntax_theme}.tmTheme"));
+
+		match ThemeSet::get_theme(&theme_path) {
+			Ok(t) => return Ok(t),
+			Err(e) => log::info!("could not load '{}': {e}, trying from the set of default themes", theme_path.display()),
+		}
+
+		let mut theme_set = ThemeSet::load_defaults();
+		if let Some(t) = theme_set.themes.remove(syntax_theme) {
+			return Ok(t);
+		}
+
+		log::error!("the syntax theme '{syntax_theme}' cannot be found. Using default theme ('{DEFAULT_SYNTAX_THEME}') instead");
+		Ok(theme_set
+			.themes
+			.remove(DEFAULT_SYNTAX_THEME)
+			.expect("the default theme should be there"))
+	})
+}
+
+pub type HighlightLine = Vec<(ratatui::style::Style, Range<usize>)>;
+
+/// Highlight lines of a diff hunk for syntax coloring.
+/// Returns `None` if the file type is plain text or highlighting fails.
+pub fn highlight_hunk_lines(
+	lines: &[&str],
+	file_path: &Path,
+	syntax_theme: &str,
+) -> Option<Vec<HighlightLine>> {
+	let plain_text = SYNTAX_SET.find_syntax_plain_text();
+	let syntax = SYNTAX_SET
+		.find_syntax_for_file(file_path)
+		.ok()
+		.flatten()
+		.unwrap_or(plain_text);
+
+	if syntax.name == "Plain Text" {
+		return None;
+	}
+
+	let theme = load_syntax_theme(syntax_theme).ok()?;
+	let highlighter = Highlighter::new(theme);
+	let mut parse_state = ParseState::new(syntax);
+	let mut highlight_state =
+		HighlightState::new(&highlighter, ScopeStack::new());
+
+	let mut result = Vec::with_capacity(lines.len());
+
+	for line in lines {
+		let ops = parse_state.parse_line(line, &SYNTAX_SET).ok()?;
+		let iter = RangedHighlightIterator::new(
+			&mut highlight_state,
+			&ops[..],
+			line,
+			&highlighter,
+		);
+		result.push(
+			iter.map(|(style, _, range)| {
+				(syntact_style_to_tui(&style), range)
+			})
+			.collect(),
+		);
+	}
+
+	Some(result)
+}
+
 impl SyntaxText {
 	pub fn new(
 		text: String,
@@ -89,23 +162,7 @@ impl SyntaxText {
 			ParseState::new(syntax)
 		};
 
-		let theme = THEME.get_or_try_init(|| -> Result<Theme, asyncgit::Error> {
-			let theme_path = crate::args::get_app_config_path()
-				.map_err(|e| asyncgit::Error::Generic(e.to_string()))?.join(format!("{syntax}.tmTheme"));
-
-			match ThemeSet::get_theme(&theme_path) {
-				Ok(t) => return Ok(t),
-			    Err(e) => log::info!("could not load '{}': {e}, trying from the set of default themes", theme_path.display()),
-			}
-
-			let mut theme_set = ThemeSet::load_defaults();
-			if let Some(t) = theme_set.themes.remove(syntax) {
-			    return Ok(t);
-			}
-
-			log::error!("the syntax theme '{syntax}' cannot be found. Using default theme ('{DEFAULT_SYNTAX_THEME}') instead");
-			Ok(theme_set.themes.remove(DEFAULT_SYNTAX_THEME).expect("the default theme should be there"))
-		})?;
+		let theme = load_syntax_theme(syntax)?;
 
 		let highlighter = Highlighter::new(theme);
 		let mut syntax_lines: Vec<SyntaxLine> = Vec::new();

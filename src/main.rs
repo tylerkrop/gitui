@@ -72,6 +72,7 @@ mod options;
 mod popup_stack;
 mod popups;
 mod queue;
+mod review;
 mod spinner;
 mod string_utils;
 mod strings;

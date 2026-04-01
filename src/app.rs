@@ -19,8 +19,8 @@ use crate::{
 		LogSearchPopupPopup, MsgPopup, OptionsPopup, PullPopup,
 		PushPopup, PushTagsPopup, RemoteListPopup, RenameBranchPopup,
 		RenameRemotePopup, ResetPopup, RevisionFilesPopup,
-		StashMsgPopup, SubmodulesListPopup, TagCommitPopup,
-		TagListPopup, UpdateRemoteUrlPopup,
+		ReviewCommentPopup, StashMsgPopup, SubmodulesListPopup,
+		TagCommitPopup, TagListPopup, UpdateRemoteUrlPopup,
 	},
 	queue::{
 		Action, AppTabs, InternalEvent, NeedsUpdate, Queue,
@@ -28,7 +28,7 @@ use crate::{
 	},
 	setup_popups,
 	strings::{self, ellipsis_trim_start, order},
-	tabs::{FilesTab, Revlog, StashList, Stashing, Status},
+	tabs::{FilesTab, Revlog, ReviewTab, StashList, Stashing, Status},
 	try_or_popup,
 	ui::style::{SharedTheme, Theme},
 	AsyncAppNotification, AsyncNotification,
@@ -58,6 +58,8 @@ use std::{
 	rc::Rc,
 };
 use unicode_width::UnicodeWidthStr;
+
+use crate::review::{ReviewStore, SharedReviewStore};
 
 #[derive(Clone)]
 pub enum QuitState {
@@ -100,6 +102,7 @@ pub struct App {
 	tags_popup: TagListPopup,
 	reset_popup: ResetPopup,
 	checkout_option_popup: CheckoutOptionPopup,
+	review_comment_popup: ReviewCommentPopup,
 	cmdbar: RefCell<CommandBar>,
 	tab: usize,
 	revlog: Revlog,
@@ -107,6 +110,7 @@ pub struct App {
 	stashing_tab: Stashing,
 	stashlist_tab: StashList,
 	files_tab: FilesTab,
+	review_tab: ReviewTab,
 	queue: Queue,
 	theme: SharedTheme,
 	key_config: SharedKeyConfig,
@@ -115,6 +119,7 @@ pub struct App {
 	options: SharedOptions,
 	repo_path_text: String,
 	goto_line_popup: GotoLinePopup,
+	_review_store: SharedReviewStore,
 
 	// "Flags"
 	requires_redraw: Cell<bool>,
@@ -191,6 +196,9 @@ impl App {
 			env.options.borrow().current_tab()
 		};
 
+		let review_store: SharedReviewStore =
+			Rc::new(RefCell::new(ReviewStore::default()));
+
 		let mut app = Self {
 			input,
 			confirm_popup: ConfirmPopup::new(&env),
@@ -235,8 +243,17 @@ impl App {
 			stashing_tab: Stashing::new(&env),
 			stashlist_tab: StashList::new(&env),
 			files_tab: FilesTab::new(&env, select_file),
+			review_tab: ReviewTab::new(
+				&env,
+				review_store.clone(),
+			),
 			checkout_option_popup: CheckoutOptionPopup::new(&env),
+			review_comment_popup: ReviewCommentPopup::new(
+				&env,
+				review_store.clone(),
+			),
 			goto_line_popup: GotoLinePopup::new(&env),
+			_review_store: review_store,
 			tab: 0,
 			queue: env.queue,
 			theme: env.theme,
@@ -293,6 +310,7 @@ impl App {
 				2 => self.files_tab.draw(f, chunks_main[1])?,
 				3 => self.stashing_tab.draw(f, chunks_main[1])?,
 				4 => self.stashlist_tab.draw(f, chunks_main[1])?,
+				5 => self.review_tab.draw(f, chunks_main[1])?,
 				_ => bail!("unknown tab"),
 			}
 		}
@@ -345,6 +363,9 @@ impl App {
 				) || key_match(
 					k,
 					self.key_config.keys.tab_stashes,
+				) || key_match(
+					k,
+					self.key_config.keys.tab_review,
 				) {
 					self.switch_tab(k)?;
 					NeedsUpdate::COMMANDS
@@ -525,12 +546,14 @@ impl App {
 			submodule_popup,
 			tags_popup,
 			options_popup,
+			review_comment_popup,
 			help_popup,
 			revlog,
 			status_tab,
 			files_tab,
 			stashing_tab,
-			stashlist_tab
+			stashlist_tab,
+			review_tab
 		]
 	);
 
@@ -567,7 +590,8 @@ impl App {
 			options_popup,
 			confirm_popup,
 			msg_popup,
-			goto_line_popup
+			goto_line_popup,
+			review_comment_popup
 		]
 	);
 
@@ -601,6 +625,7 @@ impl App {
 			&mut self.files_tab,
 			&mut self.stashing_tab,
 			&mut self.stashlist_tab,
+			&mut self.review_tab,
 		]
 	}
 
@@ -626,6 +651,8 @@ impl App {
 			self.switch_to_tab(&AppTabs::Stashing)?;
 		} else if key_match(k, self.key_config.keys.tab_stashes) {
 			self.switch_to_tab(&AppTabs::Stashlist)?;
+		} else if key_match(k, self.key_config.keys.tab_review) {
+			self.switch_to_tab(&AppTabs::Review)?;
 		}
 
 		Ok(())
@@ -642,7 +669,11 @@ impl App {
 		}
 
 		self.tab = tab;
-		self.options.borrow_mut().set_current_tab(tab);
+
+		// Don't persist the review tab — its content is ephemeral
+		if tab != 5 {
+			self.options.borrow_mut().set_current_tab(tab);
+		}
 
 		Ok(())
 	}
@@ -654,6 +685,7 @@ impl App {
 			AppTabs::Files => self.set_tab(2)?,
 			AppTabs::Stashing => self.set_tab(3)?,
 			AppTabs::Stashlist => self.set_tab(4)?,
+			AppTabs::Review => self.set_tab(5)?,
 		}
 		Ok(())
 	}
@@ -939,6 +971,33 @@ impl App {
 			InternalEvent::CheckoutOption(branch) => {
 				self.checkout_option_popup.open(branch)?;
 			}
+			InternalEvent::SelectNextFile
+			| InternalEvent::SelectPrevFile => {
+				let down = matches!(
+					ev,
+					InternalEvent::SelectNextFile
+				);
+				if self.inspect_commit_popup.is_visible() {
+					self.inspect_commit_popup.select_file(down);
+				} else if self.compare_commits_popup.is_visible() {
+					self.compare_commits_popup.select_file(down);
+				} else {
+					self.status_tab.select_file(down);
+				}
+				flags.insert(NeedsUpdate::DIFF);
+			}
+			InternalEvent::OpenReviewComment {
+				path,
+				diff_context,
+			} => {
+				self.review_comment_popup
+					.open(path, diff_context)?;
+				flags.insert(NeedsUpdate::COMMANDS);
+			}
+			InternalEvent::EditReviewComment(index) => {
+				self.review_comment_popup.open_edit(index)?;
+				flags.insert(NeedsUpdate::COMMANDS);
+			}
 		}
 
 		Ok(flags)
@@ -1173,6 +1232,7 @@ impl App {
 			Span::raw(strings::tab_files(&self.key_config)),
 			Span::raw(strings::tab_stashing(&self.key_config)),
 			Span::raw(strings::tab_stashes(&self.key_config)),
+			Span::raw(strings::tab_review(&self.key_config)),
 		];
 		let divider = strings::tab_divider(&self.key_config);
 

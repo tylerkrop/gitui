@@ -80,6 +80,7 @@ pub enum AppTabs {
 	Files,
 	Stashing,
 	Stashlist,
+	Review,
 }
 
 ///
@@ -164,6 +165,17 @@ pub enum InternalEvent {
 	GotoLine(usize),
 	///
 	CheckoutOption(BranchInfo),
+	/// open review comment popup
+	OpenReviewComment {
+		path: String,
+		diff_context: Option<String>,
+	},
+	/// edit existing review comment
+	EditReviewComment(usize),
+	///
+	SelectNextFile,
+	///
+	SelectPrevFile,
 }
 
 /// single threaded simple queue for components to communicate with each other

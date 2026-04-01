@@ -12,7 +12,9 @@ use crate::{
 	string_utils::tabs_to_spaces,
 	string_utils::trim_offset,
 	strings, try_or_popup,
+	ui::highlight_hunk_lines,
 	ui::style::SharedTheme,
+	ui::HighlightLine,
 };
 use anyhow::Result;
 use asyncgit::{
@@ -29,7 +31,7 @@ use ratatui::{
 	widgets::{Block, Borders, Paragraph},
 	Frame,
 };
-use std::{borrow::Cow, cell::Cell, cmp, path::Path};
+use std::{borrow::Cow, cell::Cell, cmp, fmt::Write, path::Path};
 
 #[derive(Default)]
 struct Current {
@@ -102,6 +104,7 @@ impl Selection {
 }
 
 ///
+#[allow(clippy::struct_excessive_bools)]
 pub struct DiffComponent {
 	repo: RepoPathRef,
 	diff: Option<FileDiff>,
@@ -119,6 +122,9 @@ pub struct DiffComponent {
 	key_config: SharedKeyConfig,
 	is_immutable: bool,
 	options: SharedOptions,
+	syntax_highlighting: Option<Vec<HighlightLine>>,
+	has_next_file: bool,
+	has_prev_file: bool,
 }
 
 impl DiffComponent {
@@ -141,11 +147,23 @@ impl DiffComponent {
 			is_immutable,
 			repo: env.repo.clone(),
 			options: env.options.clone(),
+			syntax_highlighting: None,
+			has_next_file: false,
+			has_prev_file: false,
 		}
 	}
 	///
 	fn can_scroll(&self) -> bool {
 		self.diff.as_ref().is_some_and(|diff| diff.lines > 1)
+	}
+	///
+	pub const fn set_file_nav(
+		&mut self,
+		has_next: bool,
+		has_prev: bool,
+	) {
+		self.has_next_file = has_next;
+		self.has_prev_file = has_prev;
 	}
 	///
 	pub fn current(&self) -> (String, bool) {
@@ -161,6 +179,9 @@ impl DiffComponent {
 		self.selection = Selection::Single(0);
 		self.selected_hunk = None;
 		self.pending = pending;
+		self.syntax_highlighting = None;
+		self.has_next_file = false;
+		self.has_prev_file = false;
 	}
 	///
 	pub fn update(
@@ -183,6 +204,8 @@ impl DiffComponent {
 			};
 
 			self.diff = Some(diff);
+			self.syntax_highlighting =
+				self.compute_syntax_highlighting();
 
 			self.longest_line = self
 				.diff
@@ -215,6 +238,47 @@ impl DiffComponent {
 				self.update_selection(old_selection);
 			}
 		}
+	}
+
+	fn compute_syntax_highlighting(
+		&self,
+	) -> Option<Vec<HighlightLine>> {
+		let diff = self.diff.as_ref()?;
+		let file_path = Path::new(&self.current.path);
+		let syntax_theme = self.theme.get_syntax();
+
+		let mut all_syntax = Vec::new();
+
+		for hunk in &diff.hunks {
+			let content_lines: Vec<String> = hunk
+				.lines
+				.iter()
+				.filter(|l| l.line_type != DiffLineType::Header)
+				.map(|l| {
+					tabs_to_spaces(l.content.as_ref().to_string())
+				})
+				.collect();
+
+			let line_refs: Vec<&str> =
+				content_lines.iter().map(String::as_str).collect();
+			let highlighted = highlight_hunk_lines(
+				&line_refs,
+				file_path,
+				&syntax_theme,
+			)?;
+
+			let mut h_idx = 0;
+			for line in &hunk.lines {
+				if line.line_type == DiffLineType::Header {
+					all_syntax.push(Vec::new());
+				} else {
+					all_syntax.push(highlighted[h_idx].clone());
+					h_idx += 1;
+				}
+			}
+		}
+
+		Some(all_syntax)
 	}
 
 	fn move_selection(&mut self, move_type: ScrollType) {
@@ -357,6 +421,14 @@ impl DiffComponent {
 							if line_cursor >= min
 								&& line_cursor <= max
 							{
+								let syntax = self
+									.syntax_highlighting
+									.as_ref()
+									.and_then(|sh| {
+										sh.get(line_cursor)
+									})
+									.map(Vec::as_slice);
+
 								res.push(Self::get_line_to_add(
 									width,
 									line,
@@ -369,6 +441,7 @@ impl DiffComponent {
 									&self.theme,
 									self.horizontal_scroll
 										.get_right(),
+									syntax,
 								));
 								lines_added += 1;
 							}
@@ -419,6 +492,7 @@ impl DiffComponent {
 		])]
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn get_line_to_add<'a>(
 		width: u16,
 		line: &'a DiffLine,
@@ -427,50 +501,114 @@ impl DiffComponent {
 		end_of_hunk: bool,
 		theme: &SharedTheme,
 		scrolled_right: usize,
+		syntax: Option<&[(ratatui::style::Style, std::ops::Range<usize>)]>,
 	) -> Line<'a> {
-		let style = theme.diff_hunk_marker(selected_hunk);
-
 		let is_content_line =
 			matches!(line.line_type, DiffLineType::None);
 
+		let use_syntax = syntax.is_some_and(|s| !s.is_empty())
+			&& !matches!(line.line_type, DiffLineType::Header)
+			&& (is_content_line
+				|| !line.content.as_ref().is_empty());
+
+		let gutter_style = if use_syntax {
+			theme.diff_line_gutter(line.line_type, selected_hunk)
+		} else {
+			theme.diff_hunk_marker(selected_hunk)
+		};
+
 		let left_side_of_line = if end_of_hunk {
-			Span::styled(Cow::from(symbols::line::BOTTOM_LEFT), style)
+			Span::styled(
+				Cow::from(symbols::line::BOTTOM_LEFT),
+				gutter_style,
+			)
 		} else {
 			match line.line_type {
 				DiffLineType::Header => Span::styled(
 					Cow::from(symbols::line::TOP_LEFT),
-					style,
+					gutter_style,
 				),
 				_ => Span::styled(
 					Cow::from(symbols::line::VERTICAL),
-					style,
+					gutter_style,
 				),
 			}
 		};
 
-		let content =
-			if !is_content_line && line.content.as_ref().is_empty() {
+		if let Some(syntax) = syntax.filter(|_| use_syntax) {
+			let content = tabs_to_spaces(
+				line.content.as_ref().to_string(),
+			);
+			let trimmed = trim_offset(&content, scrolled_right);
+			let trim_byte_offset = content.len() - trimmed.len();
+
+			let mut spans = vec![left_side_of_line];
+
+			for (style, range) in syntax {
+				if range.end <= trim_byte_offset {
+					continue;
+				}
+				let vis_start = range.start.max(trim_byte_offset);
+				let segment = &content[vis_start..range.end];
+				if segment.is_empty() {
+					continue;
+				}
+
+				let tui_style = theme.diff_line_syntax(
+					*style,
+					line.line_type,
+					selected,
+				);
+				spans.push(Span::styled(
+					Cow::from(segment.to_string()),
+					tui_style,
+				));
+			}
+
+			if selected {
+				let pad_len = (width as usize)
+					.saturating_sub(trimmed.len());
+				spans.push(Span::styled(
+					Cow::from(format!("{:pad_len$}\n", "")),
+					theme.diff_line(line.line_type, selected),
+				));
+			} else {
+				let bg_style = theme.diff_line_syntax(
+					ratatui::style::Style::default(),
+					line.line_type,
+					false,
+				);
+				spans.push(Span::styled(
+					Cow::from(String::from("\n")),
+					bg_style,
+				));
+			}
+
+			Line::from(spans)
+		} else {
+			let content = if !is_content_line
+				&& line.content.as_ref().is_empty()
+			{
 				theme.line_break()
 			} else {
 				tabs_to_spaces(line.content.as_ref().to_string())
 			};
-		let content = trim_offset(&content, scrolled_right);
+			let content = trim_offset(&content, scrolled_right);
 
-		let filled = if selected {
-			// selected line
-			format!("{content:w$}\n", w = width as usize)
-		} else {
-			// weird eof missing eol line
-			format!("{content}\n")
-		};
+			let filled = if selected {
+				format!("{content:w$}\n", w = width as usize)
+			} else {
+				format!("{content}\n")
+			};
 
-		Line::from(vec![
-			left_side_of_line,
-			Span::styled(
-				Cow::from(filled),
-				theme.diff_line(line.line_type, selected),
-			),
-		])
+			Line::from(vec![
+				left_side_of_line,
+				Span::styled(
+					Cow::from(filled),
+					theme.diff_line(line.line_type, selected),
+				),
+			])
+		}
 	}
 
 	const fn hunk_visible(
@@ -739,6 +877,100 @@ impl DrawableComponent for DiffComponent {
 	}
 }
 
+impl DiffComponent {
+	fn build_diff_context(&self) -> Option<String> {
+		let diff = self.diff.as_ref()?;
+		let sel_top = self.selection.get_top();
+		let sel_bottom = self.selection.get_bottom();
+
+		let mut all_lines: Vec<&DiffLine> = Vec::new();
+		let mut hunk_boundaries: Vec<(usize, usize)> = Vec::new();
+		let mut cursor = 0;
+		for hunk in &diff.hunks {
+			let start = cursor;
+			for line in &hunk.lines {
+				all_lines.push(line);
+				cursor += 1;
+			}
+			hunk_boundaries.push((start, cursor));
+		}
+
+		let context_radius: usize = 3;
+		let mut output = format!(
+			"In this diff from {}:\n\n```diff",
+			self.current.path
+		);
+
+		for &(hunk_start, hunk_end) in &hunk_boundaries {
+			if sel_bottom < hunk_start || sel_top >= hunk_end {
+				continue;
+			}
+
+			let sel_start_in_hunk = sel_top.max(hunk_start);
+			let sel_end_in_hunk = sel_bottom.min(hunk_end - 1);
+
+			let ctx_start = sel_start_in_hunk
+				.saturating_sub(context_radius)
+				.max(hunk_start);
+			let ctx_end =
+				(sel_end_in_hunk + context_radius).min(hunk_end - 1);
+
+			let mut old_start = None;
+			let mut new_start = None;
+			let mut old_count = 0u32;
+			let mut new_count = 0u32;
+
+			for line in all_lines.iter().take(ctx_end + 1).skip(ctx_start) {
+				if matches!(line.line_type, DiffLineType::Header) {
+					continue;
+				}
+				if old_start.is_none() {
+					old_start = line.position.old_lineno;
+				}
+				if new_start.is_none() {
+					new_start = line.position.new_lineno;
+				}
+				match line.line_type {
+					DiffLineType::None => {
+						old_count += 1;
+						new_count += 1;
+					}
+					DiffLineType::Delete => old_count += 1,
+					DiffLineType::Add => new_count += 1,
+					DiffLineType::Header => {}
+				}
+			}
+
+			let old_s = old_start.unwrap_or(1);
+			let new_s = new_start.unwrap_or(1);
+			let _ = write!(
+				output,
+				"\n@@ -{old_s},{old_count} +{new_s},{new_count} @@"
+			);
+
+			for line in all_lines.iter().take(ctx_end + 1).skip(ctx_start) {
+				if matches!(line.line_type, DiffLineType::Header) {
+					continue;
+				}
+				let prefix = match line.line_type {
+					DiffLineType::Add => "+",
+					DiffLineType::Delete => "-",
+					DiffLineType::None => " ",
+					DiffLineType::Header => continue,
+				};
+				let content = line
+					.content
+					.trim_end_matches(['\n', '\r'])
+					.replace('\t', "  ");
+				let _ = write!(output, "\n{prefix}{content}");
+			}
+		}
+
+		output.push_str("\n```");
+		Some(output)
+	}
+}
+
 impl Component for DiffComponent {
 	fn commands(
 		&self,
@@ -758,6 +990,16 @@ impl Component for DiffComponent {
 		out.push(CommandInfo::new(
 			strings::commands::diff_hunk_prev(&self.key_config),
 			self.calc_hunk_move_target(-1) != self.selected_hunk,
+			self.focused(),
+		));
+		out.push(CommandInfo::new(
+			strings::commands::diff_file_next(&self.key_config),
+			self.has_next_file,
+			self.focused(),
+		));
+		out.push(CommandInfo::new(
+			strings::commands::diff_file_prev(&self.key_config),
+			self.has_prev_file,
 			self.focused(),
 		));
 		out.push(
@@ -812,6 +1054,12 @@ impl Component for DiffComponent {
 		out.push(CommandInfo::new(
 			strings::commands::copy(&self.key_config),
 			true,
+			self.focused(),
+		));
+
+		out.push(CommandInfo::new(
+			strings::commands::review_comment(&self.key_config),
+			self.diff.is_some(),
 			self.focused(),
 		));
 
@@ -878,6 +1126,18 @@ impl Component for DiffComponent {
 					Ok(EventState::Consumed)
 				} else if key_match(
 					e,
+					self.key_config.keys.diff_file_next,
+				) {
+					self.queue.push(InternalEvent::SelectNextFile);
+					Ok(EventState::Consumed)
+				} else if key_match(
+					e,
+					self.key_config.keys.diff_file_prev,
+				) {
+					self.queue.push(InternalEvent::SelectPrevFile);
+					Ok(EventState::Consumed)
+				} else if key_match(
+					e,
 					self.key_config.keys.stage_unstage_item,
 				) && !self.is_immutable
 				{
@@ -925,6 +1185,21 @@ impl Component for DiffComponent {
 				} else if key_match(e, self.key_config.keys.copy) {
 					self.copy_selection();
 					Ok(EventState::Consumed)
+				} else if key_match(
+					e,
+					self.key_config.keys.review_comment,
+				) {
+					if self.diff.is_some() {
+						let diff_context =
+							self.build_diff_context();
+						self.queue.push(
+							InternalEvent::OpenReviewComment {
+								path: self.current.path.clone(),
+								diff_context,
+							},
+						);
+					}
+					Ok(EventState::Consumed)
 				} else {
 					Ok(EventState::NotConsumed)
 				};
@@ -969,7 +1244,8 @@ mod tests {
 					false,
 					false,
 					&default_theme,
-					0
+					0,
+					None,
 				)
 				.spans
 				.last()
@@ -1000,7 +1276,8 @@ mod tests {
 
 			assert_eq!(
 				DiffComponent::get_line_to_add(
-					4, &diff_line, false, false, false, &theme, 0
+					4, &diff_line, false, false, false, &theme, 0,
+					None,
 				)
 				.spans
 				.last()
